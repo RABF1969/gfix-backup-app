@@ -1,18 +1,50 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { exec } from 'child_process';
 
 let mainWindow: BrowserWindow | null = null;
 
+/* ======= Modo Portable: salva dados ao lado do .exe ======= */
+if (process.env.PORTABLE_EXECUTABLE_DIR) {
+  const portableDataDir = path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'data');
+  try { fs.mkdirSync(portableDataDir, { recursive: true }); } catch {}
+  app.setPath('userData', portableDataDir);
+}
+
+/** Flag para permitir fechar de fato a janela */
+let allowClose = false;
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 780,
+
+    // === FRAMELESS ===
+    frame: false,                 // remove moldura/botões do Windows
+    titleBarStyle: 'hidden',      // evita título nativo
+    thickFrame: false,            // tira borda grossa do Windows
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+
+  // remove totalmente menu
+  Menu.setApplicationMenu(null);
+
+  // bloqueia fechar pelo X/Alt+F4 — só "Sair" libera
+  mainWindow.on('close', (e) => {
+    if (!allowClose) {
+      e.preventDefault(); // impede fechamento
+      // opcional: avisar a UI se quiser mostrar algo
+      // mainWindow?.webContents.send('ui:prevented-close');
     }
   });
 
@@ -40,10 +72,23 @@ ipcMain.handle('app:confirm-exit', async () => {
     cancelId: 1,
     noLink: true
   });
-  return r.response === 0; // true se clicou "Sim"
+  return r.response === 0;
 });
 
-ipcMain.on('app:exit', () => { app.quit(); });
+ipcMain.on('app:exit', () => {
+  allowClose = true;       // permite fechar
+  // se quiser fechar a janela atual:
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.close();
+  } else {
+    app.quit();
+  }
+});
+
+ipcMain.on('app:force-exit', () => { // opcional: saída sem pergunta
+  allowClose = true;
+  app.quit();
+});
 
 /* ====================== EXEC HELPER ====================== */
 function runCommandStr(command: string): Promise<string> {
@@ -75,10 +120,13 @@ const defaultTemplates: Templates = {
   restore: `{GBAK} -create -z -v -y "{LOG_RTR}" "{FBK}" "{NEW_DB}" -user {USER} -password {PASS}`
 };
 
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+function getSettingsPath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
 
 function loadTemplates(): Templates {
   try {
+    const settingsPath = getSettingsPath();
     if (fs.existsSync(settingsPath)) {
       const json = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
       return { ...defaultTemplates, ...json };
@@ -89,6 +137,7 @@ function loadTemplates(): Templates {
 
 function saveTemplates(data: Templates) {
   try {
+    const settingsPath = getSettingsPath();
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
     return true;
@@ -157,7 +206,6 @@ ipcMain.handle('mend-db', async (_e, binPath: string, dbPath: string, user: stri
 // Backup & Restore (gbak) com stop/start do serviço + rename retry
 ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
   const t = loadTemplates();
-
   const gbak = `"${path.join(binPath, 'gbak.exe')}"`;
   const dir = path.dirname(dbPath);
   const base = path.basename(dbPath).replace(/\.fdb$/i, '');
