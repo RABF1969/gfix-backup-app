@@ -29,10 +29,7 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-/** === Sair === */
-ipcMain.on('app:exit', () => { app.quit(); });
-
-/** Diálogo nativo de confirmação */
+/* ====================== SAIR COM CONFIRMAÇÃO ====================== */
 ipcMain.handle('app:confirm-exit', async () => {
   const r = await dialog.showMessageBox({
     type: 'question',
@@ -46,7 +43,9 @@ ipcMain.handle('app:confirm-exit', async () => {
   return r.response === 0; // true se clicou "Sim"
 });
 
-/** === Helpers de processo === */
+ipcMain.on('app:exit', () => { app.quit(); });
+
+/* ====================== EXEC HELPER ====================== */
 function runCommandStr(command: string): Promise<string> {
   return new Promise((resolve) => {
     exec(command, { windowsHide: true }, (error, stdout, stderr) => {
@@ -57,15 +56,62 @@ function runCommandStr(command: string): Promise<string> {
   });
 }
 
-/* ---------- PICKERS ---------- */
+/* ====================== CONFIG / TEMPLATES ====================== */
+type Templates = {
+  useCustom: boolean;
+  test: string;
+  check: string;
+  mend: string;
+  backup: string;
+  restore: string;
+};
+
+const defaultTemplates: Templates = {
+  useCustom: false,
+  test: `cmd /c "echo quit; | {ISQL} -user {USER} -password {PASS} "{DB_PATH}" -q -nod"`,
+  check: `{GFIX} -user {USER} -password {PASS} -v -full "{DB_PATH}"`,
+  mend: `{GFIX} -user {USER} -password {PASS} -mend "{DB_PATH}"`,
+  backup: `{GBAK} -backup -ignore -garbage -limbo -v -y "{LOG_BKP}" "{OLD_DB}" "{FBK}" -user {USER} -password {PASS}`,
+  restore: `{GBAK} -create -z -v -y "{LOG_RTR}" "{FBK}" "{NEW_DB}" -user {USER} -password {PASS}`
+};
+
+const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+
+function loadTemplates(): Templates {
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const json = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      return { ...defaultTemplates, ...json };
+    }
+  } catch {}
+  return { ...defaultTemplates };
+}
+
+function saveTemplates(data: Templates) {
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function replacePlaceholders(tpl: string, ctx: Record<string, string>) {
+  return tpl.replace(/\{([A-Z_]+)\}/g, (_m, key) => ctx[key] ?? '');
+}
+
+/* IPC de configurações */
+ipcMain.handle('config:get-templates', async () => loadTemplates());
+ipcMain.handle('config:save-templates', async (_e, data: Templates) => saveTemplates(data) ? 'OK' : 'Erro ao salvar templates.');
+ipcMain.handle('config:restore-defaults', async () => (saveTemplates({ ...defaultTemplates }) ? loadTemplates() : defaultTemplates));
+
+/* ====================== PICKERS ====================== */
 ipcMain.handle('select-fdb', async () => {
   const res = await dialog.showOpenDialog({
     title: 'Selecionar banco de dados (.FDB)',
     properties: ['openFile'],
-    filters: [
-      { name: 'Firebird DB', extensions: ['fdb', 'gdb'] },
-      { name: 'Todos os arquivos', extensions: ['*'] }
-    ]
+    filters: [{ name: 'Firebird DB', extensions: ['fdb', 'gdb'] }, { name: 'Todos os arquivos', extensions: ['*'] }]
   });
   if (res.canceled || !res.filePaths?.[0]) return '';
   return res.filePaths[0];
@@ -80,26 +126,38 @@ ipcMain.handle('select-bin', async () => {
   return res.filePaths[0];
 });
 
-/* ---------- AÇÕES ---------- */
+/* ====================== AÇÕES ====================== */
+// Testar conexão (isql)
 ipcMain.handle('test-connection', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+  const t = loadTemplates();
   const isql = `"${path.join(binPath, 'isql.exe')}"`;
-  const cmd = `cmd /c "echo quit; | ${isql} -user ${user} -password ${password} "${dbPath}" -q -nod"`;
+  const ctx = { ISQL: isql, USER: user, PASS: password, DB_PATH: dbPath };
+  const cmd = t.useCustom ? replacePlaceholders(t.test, ctx) : `cmd /c "echo quit; | ${isql} -user ${user} -password ${password} "${dbPath}" -q -nod"`;
   return await runCommandStr(cmd);
 });
 
+// Verificar banco (gfix -v -full)
 ipcMain.handle('check-db', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+  const t = loadTemplates();
   const gfix = `"${path.join(binPath, 'gfix.exe')}"`;
-  const cmd = `${gfix} -user ${user} -password ${password} -v -full "${dbPath}"`;
+  const ctx = { GFIX: gfix, USER: user, PASS: password, DB_PATH: dbPath };
+  const cmd = t.useCustom ? replacePlaceholders(t.check, ctx) : `${gfix} -user ${user} -password ${password} -v -full "${dbPath}"`;
   return await runCommandStr(cmd);
 });
 
+// Reparar banco (gfix -mend)
 ipcMain.handle('mend-db', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+  const t = loadTemplates();
   const gfix = `"${path.join(binPath, 'gfix.exe')}"`;
-  const cmd = `${gfix} -user ${user} -password ${password} -mend "${dbPath}"`;
+  const ctx = { GFIX: gfix, USER: user, PASS: password, DB_PATH: dbPath };
+  const cmd = t.useCustom ? replacePlaceholders(t.mend, ctx) : `${gfix} -user ${user} -password ${password} -mend "${dbPath}"`;
   return await runCommandStr(cmd);
 });
 
+// Backup & Restore (gbak) com stop/start do serviço + rename retry
 ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+  const t = loadTemplates();
+
   const gbak = `"${path.join(binPath, 'gbak.exe')}"`;
   const dir = path.dirname(dbPath);
   const base = path.basename(dbPath).replace(/\.fdb$/i, '');
@@ -115,9 +173,7 @@ ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, use
   const logRtr = path.join(tempDir, `LOG_RTR_${stamp}.LOG`);
 
   const services = ['FirebirdServerFB25', 'FirebirdServerDefaultInstance', 'FirebirdServer'];
-  async function sc(cmd: 'stop'|'start') {
-    for (const s of services) await runCommandStr(`sc ${cmd} ${s}`);
-  }
+  async function sc(cmd: 'stop'|'start') { for (const s of services) await runCommandStr(`sc ${cmd} ${s}`); }
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
   async function renameWithRetry(src: string, dst: string, tries = 16, delayMs = 500) {
     for (let i = 0; i < tries; i++) {
@@ -134,16 +190,32 @@ ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, use
     const renamed = await renameWithRetry(dbPath, oldDb, 16, 500);
     if (!renamed) { await sc('start'); return `Falha ao renomear (arquivo em uso): ${dbPath}`; }
 
-    let cmd = `${gbak} -backup -ignore -garbage -limbo -v -y "${logBkp}" "${oldDb}" "${fbk}" -user ${user} -password ${password}`;
-    let out = await runCommandStr(cmd);
+    // BACKUP
+    let backupCmd = `${gbak} -backup -ignore -garbage -limbo -v -y "${logBkp}" "${oldDb}" "${fbk}" -user ${user} -password ${password}`;
+    if (t.useCustom) {
+      backupCmd = replacePlaceholders(t.backup, {
+        GBAK: gbak, USER: user, PASS: password,
+        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
+        LOG_BKP: logBkp, LOG_RTR: logRtr
+      });
+    }
+    let out = await runCommandStr(backupCmd);
     if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
       try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
       await sc('start');
       return `Falha no backup:\n${out}`;
     }
 
-    cmd = `${gbak} -create -z -v -y "${logRtr}" "${fbk}" "${newDb}" -user ${user} -password ${password}`;
-    out = await runCommandStr(cmd);
+    // RESTORE
+    let restoreCmd = `${gbak} -create -z -v -y "${logRtr}" "${fbk}" "${newDb}" -user ${user} -password ${password}`;
+    if (t.useCustom) {
+      restoreCmd = replacePlaceholders(t.restore, {
+        GBAK: gbak, USER: user, PASS: password,
+        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
+        LOG_BKP: logBkp, LOG_RTR: logRtr
+      });
+    }
+    out = await runCommandStr(restoreCmd);
     if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
       try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
       try { if (fs.existsSync(newDb)) fs.unlinkSync(newDb); } catch {}

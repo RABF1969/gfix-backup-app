@@ -15,7 +15,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   backupRestore: (binPath: string, dbPath: string, user: string, password: string) =>
     ipcRenderer.invoke('backup-restore', binPath, dbPath, user, password),
 
-  // sair
+  // sair com confirmação
+  confirmExit: () => ipcRenderer.invoke('app:confirm-exit'),
   exitApp: () => ipcRenderer.send('app:exit'),
-  confirmExit: () => ipcRenderer.invoke('app:confirm-exit')
+
+  // config/templates
+  getTemplates: () => ipcRenderer.invoke('config:get-templates'),
+  saveTemplates: (data: any) => ipcRenderer.invoke('config:save-templates', data),
+  restoreDefaultTemplates: () => ipcRenderer.invoke('config:restore-defaults')
 });
