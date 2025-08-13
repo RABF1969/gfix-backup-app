@@ -1,44 +1,52 @@
-// Tipos globais expostos pelo preload (window.api)
+// src/types/preload.d.ts
 
 export {};
 
 declare global {
   interface Window {
     api: {
-      // genéricos
-      invoke: (channel: string, ...args: any[]) => Promise<any>;
-      send: (channel: string, ...args: any[]) => void;
-
-      // janela
+      // Sistema / janela
       minimize: () => void;
       confirmExit: () => Promise<boolean>;
       exit: () => void;
 
-      // config / templates
-      getTemplates: () => Promise<{
-        useCustom: boolean;
-        test: string;
-        check: string;
-        mend: string;
-        backup: string;
-        restore: string;
-      }>;
-      saveTemplates: (data: {
-        useCustom: boolean;
-        test: string;
-        check: string;
-        mend: string;
-        backup: string;
-        restore: string;
-      }) => Promise<"OK" | string>;
-      restoreDefaults: () => Promise<{
-        useCustom: boolean;
-        test: string;
-        check: string;
-        mend: string;
-        backup: string;
-        restore: string;
-      }>;
+      // Pickers
+      selectFdb: () => Promise<string>;
+      selectBin: () => Promise<string>;
+
+      // Ações banco
+      testConnection: (
+        binPath: string,
+        dbPath: string,
+        user: string,
+        pass: string
+      ) => Promise<string>;
+
+      checkDb: (
+        binPath: string,
+        dbPath: string,
+        user: string,
+        pass: string
+      ) => Promise<string>;
+
+      mendDb: (
+        binPath: string,
+        dbPath: string,
+        user: string,
+        pass: string
+      ) => Promise<string>;
+
+      backupRestore: (
+        binPath: string,
+        dbPath: string,
+        user: string,
+        pass: string
+      ) => Promise<string>;
+
+      // Config (templates)
+      getTemplates: () => Promise<any>;
+      saveTemplates: (data: any) => Promise<string>;
+      restoreDefaults: () => Promise<any>;
     };
   }
 }
