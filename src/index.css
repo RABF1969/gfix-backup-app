@@ -1,58 +1,60 @@
-/* Base */
+/* =================== Base / Reset =================== */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-
-/* Fundo liso e sem margens */
 body {
   margin: 0;
-  background: #ffffff;              /* tira o cinza de fora */
+  background: #e9edf3;
   font-family: Segoe UI, Tahoma, Arial, sans-serif;
   color: #222;
+  overflow: hidden; /* evita rolagem externa da janela sem frame */
 }
 
-/* ===== Janela do app ocupa tudo ===== */
-.window {
-  width: 100vw;                     /* ocupa toda a largura */
-  height: 100vh;                    /* ocupa toda a altura */
-  max-width: none;
-  margin: 0;                        /* sem margens ao redor */
-  background: #fff;
-  border: none;                     /* remove borda do “cartão” */
-  border-radius: 0;                 /* sem cantos arredondados */
-  box-shadow: none;                 /* remove sombra externa */
+/* Container raiz da app */
+.app {
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* ===== Barra de título (arrastável) ===== */
+/* =================== Titlebar custom (frame=false) =================== */
+/* Esta faixa precisa ser "drag" pra permitir arrastar a janela */
 .titlebar {
-  padding: 12px 16px;
-  border-bottom: 1px solid #d8e1ec;
-  font-weight: 700;
-  font-size: 15px;
-  background: linear-gradient(#f9fbff, #f2f6fc);
-
-  /* Permite arrastar a janela no modo frameless */
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #d8e1ec;
+  background: linear-gradient(#f9fbff, #f2f6fc);
 }
 
-/* Dentro da titlebar, elementos continuam clicáveis */
-.titlebar button,
-.titlebar a,
-.titlebar input,
-.titlebar select,
-.titlebar textarea {
+/* Título */
+.title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* Botões da janela (min/max/fechar) ficam do lado direito */
+.win-controls {
+  display: flex;
+  gap: 8px;
+}
+
+/* Qualquer elemento clicável DENTRO da titlebar deve ser no-drag */
+.no-drag,
+.titlebar .btn,
+.titlebar button {
   -webkit-app-region: no-drag;
 }
 
-/* ===== Conteúdo ===== */
+/* =================== Conteúdo =================== */
 .content {
+  flex: 1;               /* ocupa todo o restante vertical */
+  overflow: auto;        /* se faltar espaço, rola só o conteúdo */
   padding: 16px;
-  flex: 1 1 auto;                   /* preenche o espaço restante */
-  overflow: auto;                   /* rolagem se necessário */
 }
 
-/* Group box (como o print) */
+/* Group box (estilo "caixa" do print) */
 .group {
   border: 1px solid #c7d0dc;
   border-radius: 6px;
@@ -72,9 +74,19 @@ body {
   font-size: 13px;
 }
 
-/* Rows e inputs */
-.row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-.label { min-width: 160px; font-weight: 600; color: #2c3e50; }
+/* Linhas e inputs */
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.label {
+  min-width: 160px;
+  font-weight: 600;
+  color: #2c3e50;
+}
 .input, .password {
   flex: 1;
   min-width: 260px;
@@ -83,9 +95,15 @@ body {
   border-radius: 4px;
   background: #fff;
 }
-.checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #333; }
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #333;
+}
 
-/* Buttons no estilo Win */
+/* Botões estilo Win */
 .btn {
   appearance: none;
   border: 1px solid #8aa8c8;
@@ -104,59 +122,26 @@ body {
 /* Status */
 .status { font-size: 13px; }
 .link-green { color: #0a8a2a; font-weight: 700; }
+.link-red   { color: #b00020; font-weight: 700; }
 
-/* Log box */
+/* Console fixo (sem rolagem, sempre substituído) */
 .log {
   background: #0a0f17;
   color: #c9ffd4;
   border: 1px solid #c7d0dc;
   border-radius: 6px;
   padding: 10px;
-  min-height: 180px;
-  white-space: pre-wrap;
+  min-height: 140px;
+  white-space: pre-wrap;             /* quebra linhas */
   font-family: Consolas, ui-monospace, monospace;
   font-size: 12px;
+  overflow: hidden;                  /* sem scrollbars */
 }
 
-/* Linha interna da titlebar (texto à esquerda, botões à direita) */
-.titlebar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Título (arrastável) */
-.titlebar .title {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-/* Área dos botões não é arrastável */
-.titlebar-controls {
-  -webkit-app-region: no-drag;
-  display: inline-flex;
-  gap: 6px;
-}
-
-/* Botões */
-.tb-btn {
-  width: 32px;
-  height: 24px;
-  line-height: 22px;
-  border: 1px solid #b8c7da;
-  border-radius: 4px;
-  background: linear-gradient(#ffffff, #e8f1fb);
-  color: #173b63;
-  font-weight: 700;
+/* Rodapé (o componente Footer usa esta área) */
+footer {
+  margin-top: 12px;
   text-align: center;
-  cursor: pointer;
-  padding: 0;
-}
-.tb-btn:hover { filter: brightness(0.98); }
-.tb-btn:active { transform: translateY(1px); }
-
-.tb-close {
-  background: linear-gradient(#ffe5e5, #ffc7c7);
-  border-color: #de8a8a;
-  color: #7a1212;
+  font-size: 12px;
+  color: #666;
 }
