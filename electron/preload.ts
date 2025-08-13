@@ -1,26 +1,36 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer } from "electron";
 
-contextBridge.exposeInMainWorld('electronAPI', {
-  // pickers
-  selectFDB: () => ipcRenderer.invoke('select-fdb'),
-  selectBIN: () => ipcRenderer.invoke('select-bin'),
+const api = {
+  // Controles janela
+  minimize: () => ipcRenderer.send("window:minimize"),
+  exit:     () => ipcRenderer.send("app:exit"),
 
-  // ações
-  testConnection: (binPath: string, dbPath: string, user: string, password: string) =>
-    ipcRenderer.invoke('test-connection', binPath, dbPath, user, password),
-  checkDB: (binPath: string, dbPath: string, user: string, password: string) =>
-    ipcRenderer.invoke('check-db', binPath, dbPath, user, password),
-  mendDB: (binPath: string, dbPath: string, user: string, password: string) =>
-    ipcRenderer.invoke('mend-db', binPath, dbPath, user, password),
-  backupRestore: (binPath: string, dbPath: string, user: string, password: string) =>
-    ipcRenderer.invoke('backup-restore', binPath, dbPath, user, password),
+  // Pickers
+  selectFdb: () => ipcRenderer.invoke("select-fdb"),
+  selectBin: () => ipcRenderer.invoke("select-bin"),
 
-  // sair com confirmação
-  confirmExit: () => ipcRenderer.invoke('app:confirm-exit'),
-  exitApp: () => ipcRenderer.send('app:exit'),
+  // Ações
+  testConnection: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("test-connection", { bin, db, user, pass }),
+  checkDb: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("check-db", { bin, db, user, pass }),
+  mendDb: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("mend-db", { bin, db, user, pass }),
+  backupRestore: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("backup-restore", { bin, db, user, pass }),
 
-  // config/templates
-  getTemplates: () => ipcRenderer.invoke('config:get-templates'),
-  saveTemplates: (data: any) => ipcRenderer.invoke('config:save-templates', data),
-  restoreDefaultTemplates: () => ipcRenderer.invoke('config:restore-defaults')
-});
+  // Configs
+  getTemplates:      () => ipcRenderer.invoke("config:get-templates"),
+  saveTemplates:     (data: any) => ipcRenderer.invoke("config:save-templates", data),
+  restoreDefaults:   () => ipcRenderer.invoke("config:restore-defaults"),
+
+  // Canal genérico se precisar
+  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+  send:   (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
+};
+
+contextBridge.exposeInMainWorld("api", api);
+
+declare global {
+  interface Window { api: typeof api }
+}

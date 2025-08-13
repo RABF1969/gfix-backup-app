@@ -12,39 +12,42 @@ if (process.env.PORTABLE_EXECUTABLE_DIR) {
   app.setPath('userData', portableDataDir);
 }
 
-/** Flag para permitir fechar de fato a janela */
-let allowClose = false;
+/* ======= Criação da Janela ======= */
+let allowQuit = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 780,
-
-    // === FRAMELESS ===
-    frame: false,                 // remove moldura/botões do Windows
-    titleBarStyle: 'hidden',      // evita título nativo
-    thickFrame: false,            // tira borda grossa do Windows
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-
+    frame: true,                 // mantém a barra com X
     autoHideMenuBar: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.resolve(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
-    }
+      nodeIntegration: false,
+      sandbox: false,
+    },
   });
 
-  // remove totalmente menu
   Menu.setApplicationMenu(null);
 
-  // bloqueia fechar pelo X/Alt+F4 — só "Sair" libera
-  mainWindow.on('close', (e) => {
-    if (!allowClose) {
-      e.preventDefault(); // impede fechamento
-      // opcional: avisar a UI se quiser mostrar algo
-      // mainWindow?.webContents.send('ui:prevented-close');
+  // Confirmação ao clicar no X
+  mainWindow.on('close', async (e) => {
+    if (allowQuit) return;
+    e.preventDefault();
+    const r = await dialog.showMessageBox({
+      type: 'question',
+      title: 'Confirmar saída',
+      message: 'Deseja realmente fechar o aplicativo?',
+      buttons: ['Sim', 'Não'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (r.response === 0) {
+      allowQuit = true;
+      mainWindow?.destroy();
+      app.quit();
     }
   });
 
@@ -61,34 +64,26 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
-/* ====================== SAIR COM CONFIRMAÇÃO ====================== */
-ipcMain.handle('app:confirm-exit', async () => {
-  const r = await dialog.showMessageBox({
+/* ====================== SAIR (botão “Sair”) ====================== */
+ipcMain.on('app:exit', async () => {
+  if (!mainWindow) { app.quit(); return; }
+  const r = await dialog.showMessageBox(mainWindow, {
     type: 'question',
     title: 'Confirmar saída',
     message: 'Deseja realmente fechar o aplicativo?',
     buttons: ['Sim', 'Não'],
     defaultId: 1,
     cancelId: 1,
-    noLink: true
+    noLink: true,
   });
-  return r.response === 0;
-});
-
-ipcMain.on('app:exit', () => {
-  allowClose = true;       // permite fechar
-  // se quiser fechar a janela atual:
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  if (r.response === 0) {
+    allowQuit = true;
     mainWindow.close();
-  } else {
-    app.quit();
   }
 });
 
-ipcMain.on('app:force-exit', () => { // opcional: saída sem pergunta
-  allowClose = true;
-  app.quit();
-});
+/* ====================== CONTROLES DA JANELA ====================== */
+ipcMain.on('window:minimize', () => { mainWindow?.minimize(); });
 
 /* ====================== EXEC HELPER ====================== */
 function runCommandStr(command: string): Promise<string> {
@@ -117,98 +112,101 @@ const defaultTemplates: Templates = {
   check: `{GFIX} -user {USER} -password {PASS} -v -full "{DB_PATH}"`,
   mend: `{GFIX} -user {USER} -password {PASS} -mend "{DB_PATH}"`,
   backup: `{GBAK} -backup -ignore -garbage -limbo -v -y "{LOG_BKP}" "{OLD_DB}" "{FBK}" -user {USER} -password {PASS}`,
-  restore: `{GBAK} -create -z -v -y "{LOG_RTR}" "{FBK}" "{NEW_DB}" -user {USER} -password {PASS}`
+  restore: `{GBAK} -create -z -v -y "{LOG_RTR}" "{FBK}" "{NEW_DB}" -user {USER} -password {PASS}`,
 };
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
 }
-
 function loadTemplates(): Templates {
   try {
-    const settingsPath = getSettingsPath();
-    if (fs.existsSync(settingsPath)) {
-      const json = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const p = getSettingsPath();
+    if (fs.existsSync(p)) {
+      const json = JSON.parse(fs.readFileSync(p, 'utf-8'));
       return { ...defaultTemplates, ...json };
     }
   } catch {}
   return { ...defaultTemplates };
 }
-
 function saveTemplates(data: Templates) {
   try {
-    const settingsPath = getSettingsPath();
-    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+    const p = getSettingsPath();
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8');
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
-
 function replacePlaceholders(tpl: string, ctx: Record<string, string>) {
   return tpl.replace(/\{([A-Z_]+)\}/g, (_m, key) => ctx[key] ?? '');
 }
 
-/* IPC de configurações */
 ipcMain.handle('config:get-templates', async () => loadTemplates());
 ipcMain.handle('config:save-templates', async (_e, data: Templates) => saveTemplates(data) ? 'OK' : 'Erro ao salvar templates.');
 ipcMain.handle('config:restore-defaults', async () => (saveTemplates({ ...defaultTemplates }) ? loadTemplates() : defaultTemplates));
 
 /* ====================== PICKERS ====================== */
 ipcMain.handle('select-fdb', async () => {
-  const res = await dialog.showOpenDialog({
+  const r = await dialog.showOpenDialog({
     title: 'Selecionar banco de dados (.FDB)',
     properties: ['openFile'],
-    filters: [{ name: 'Firebird DB', extensions: ['fdb', 'gdb'] }, { name: 'Todos os arquivos', extensions: ['*'] }]
+    filters: [{ name: 'Firebird DB', extensions: ['fdb', 'gdb'] }, { name: 'Todos os arquivos', extensions: ['*'] }],
   });
-  if (res.canceled || !res.filePaths?.[0]) return '';
-  return res.filePaths[0];
+  if (r.canceled || !r.filePaths?.[0]) return '';
+  return r.filePaths[0];
 });
-
 ipcMain.handle('select-bin', async () => {
-  const res = await dialog.showOpenDialog({
+  const r = await dialog.showOpenDialog({
     title: 'Selecionar diretório BIN do Firebird 2.5',
-    properties: ['openDirectory']
+    properties: ['openDirectory'],
   });
-  if (res.canceled || !res.filePaths?.[0]) return '';
-  return res.filePaths[0];
+  if (r.canceled || !r.filePaths?.[0]) return '';
+  return r.filePaths[0];
 });
 
-/* ====================== AÇÕES ====================== */
-// Testar conexão (isql)
-ipcMain.handle('test-connection', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+/* ====================== AÇÕES (aceita params como objeto OU separados) ====================== */
+function unpackArgs(a: any[]): { bin: string; db: string; user: string; pass: string } {
+  if (a.length === 1 && a[0] && typeof a[0] === 'object') {
+    const { bin, db, user, pass } = a[0];
+    return { bin, db, user, pass };
+  }
+  const [bin, db, user, pass] = a as [string, string, string, string];
+  return { bin, db, user, pass };
+}
+
+ipcMain.handle('test-connection', async (_e, ...args: any[]) => {
+  const { bin, db, user, pass } = unpackArgs(args);
   const t = loadTemplates();
-  const isql = `"${path.join(binPath, 'isql.exe')}"`;
-  const ctx = { ISQL: isql, USER: user, PASS: password, DB_PATH: dbPath };
-  const cmd = t.useCustom ? replacePlaceholders(t.test, ctx) : `cmd /c "echo quit; | ${isql} -user ${user} -password ${password} "${dbPath}" -q -nod"`;
-  return await runCommandStr(cmd);
+  const isql = `"${path.join(bin, 'isql.exe')}"`;
+  const ctx = { ISQL: isql, USER: user, PASS: pass, DB_PATH: db };
+  const cmd = t.useCustom ? replacePlaceholders(t.test, ctx) : `cmd /c "echo quit; | ${isql} -user ${user} -password ${pass} "${db}" -q -nod"`;
+  return runCommandStr(cmd);
 });
 
-// Verificar banco (gfix -v -full)
-ipcMain.handle('check-db', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+ipcMain.handle('check-db', async (_e, ...args: any[]) => {
+  const { bin, db, user, pass } = unpackArgs(args);
   const t = loadTemplates();
-  const gfix = `"${path.join(binPath, 'gfix.exe')}"`;
-  const ctx = { GFIX: gfix, USER: user, PASS: password, DB_PATH: dbPath };
-  const cmd = t.useCustom ? replacePlaceholders(t.check, ctx) : `${gfix} -user ${user} -password ${password} -v -full "${dbPath}"`;
-  return await runCommandStr(cmd);
+  const gfix = `"${path.join(bin, 'gfix.exe')}"`;
+  const ctx = { GFIX: gfix, USER: user, PASS: pass, DB_PATH: db };
+  const cmd = t.useCustom ? replacePlaceholders(t.check, ctx) : `${gfix} -user ${user} -password ${pass} -v -full "${db}"`;
+  return runCommandStr(cmd);
 });
 
-// Reparar banco (gfix -mend)
-ipcMain.handle('mend-db', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+ipcMain.handle('mend-db', async (_e, ...args: any[]) => {
+  const { bin, db, user, pass } = unpackArgs(args);
   const t = loadTemplates();
-  const gfix = `"${path.join(binPath, 'gfix.exe')}"`;
-  const ctx = { GFIX: gfix, USER: user, PASS: password, DB_PATH: dbPath };
-  const cmd = t.useCustom ? replacePlaceholders(t.mend, ctx) : `${gfix} -user ${user} -password ${password} -mend "${dbPath}"`;
-  return await runCommandStr(cmd);
+  const gfix = `"${path.join(bin, 'gfix.exe')}"`;
+  const ctx = { GFIX: gfix, USER: user, PASS: pass, DB_PATH: db };
+  const cmd = t.useCustom ? replacePlaceholders(t.mend, ctx) : `${gfix} -user ${user} -password ${pass} -mend "${db}"`;
+  return runCommandStr(cmd);
 });
 
-// Backup & Restore (gbak) com stop/start do serviço + rename retry
-ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, user: string, password: string) => {
+ipcMain.handle('backup-restore', async (_e, ...args: any[]) => {
+  const { bin, db, user, pass } = unpackArgs(args);
   const t = loadTemplates();
-  const gbak = `"${path.join(binPath, 'gbak.exe')}"`;
-  const dir = path.dirname(dbPath);
-  const base = path.basename(dbPath).replace(/\.fdb$/i, '');
+
+  const gbak = `"${path.join(bin, 'gbak.exe')}"`;
+  const dir = path.dirname(db);
+  const base = path.basename(db).replace(/\.fdb$/i, '');
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '');
 
   const tempDir = path.join(dir, 'TEMP');
@@ -232,47 +230,47 @@ ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, use
   }
 
   try {
-    if (!fs.existsSync(dbPath)) return `Arquivo não encontrado: "${dbPath}"`;
+    if (!fs.existsSync(db)) return `Arquivo não encontrado: "${db}"`;
     await sc('stop');
 
-    const renamed = await renameWithRetry(dbPath, oldDb, 16, 500);
-    if (!renamed) { await sc('start'); return `Falha ao renomear (arquivo em uso): ${dbPath}`; }
+    const renamed = await renameWithRetry(db, oldDb, 16, 500);
+    if (!renamed) { await sc('start'); return `Falha ao renomear (arquivo em uso): ${db}`; }
 
     // BACKUP
-    let backupCmd = `${gbak} -backup -ignore -garbage -limbo -v -y "${logBkp}" "${oldDb}" "${fbk}" -user ${user} -password ${password}`;
+    let backupCmd = `${gbak} -backup -ignore -garbage -limbo -v -y "${logBkp}" "${oldDb}" "${fbk}" -user ${user} -password ${pass}`;
     if (t.useCustom) {
       backupCmd = replacePlaceholders(t.backup, {
-        GBAK: gbak, USER: user, PASS: password,
-        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
+        GBAK: gbak, USER: user, PASS: pass,
+        DB_PATH: db, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
         LOG_BKP: logBkp, LOG_RTR: logRtr
       });
     }
     let out = await runCommandStr(backupCmd);
     if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
-      try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
+      try { if (fs.existsSync(oldDb) && !fs.existsSync(db)) fs.renameSync(oldDb, db); } catch {}
       await sc('start');
       return `Falha no backup:\n${out}`;
     }
 
     // RESTORE
-    let restoreCmd = `${gbak} -create -z -v -y "${logRtr}" "${fbk}" "${newDb}" -user ${user} -password ${password}`;
+    let restoreCmd = `${gbak} -create -z -v -y "${logRtr}" "${fbk}" "${newDb}" -user ${user} -password ${pass}`;
     if (t.useCustom) {
       restoreCmd = replacePlaceholders(t.restore, {
-        GBAK: gbak, USER: user, PASS: password,
-        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
+        GBAK: gbak, USER: user, PASS: pass,
+        DB_PATH: db, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
         LOG_BKP: logBkp, LOG_RTR: logRtr
       });
     }
     out = await runCommandStr(restoreCmd);
     if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
-      try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
+      try { if (fs.existsSync(oldDb) && !fs.existsSync(db)) fs.renameSync(oldDb, db); } catch {}
       try { if (fs.existsSync(newDb)) fs.unlinkSync(newDb); } catch {}
       await sc('start');
       return `Falha no restore:\n${out}`;
     }
 
-    try { if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath); } catch {}
-    fs.renameSync(newDb, dbPath);
+    try { if (fs.existsSync(db)) fs.unlinkSync(db); } catch {}
+    fs.renameSync(newDb, db);
 
     const oldHist = path.join(dir, `${base}_OLD_${stamp}.FDB`);
     try { fs.renameSync(oldDb, oldHist); } catch {}
@@ -282,7 +280,7 @@ ipcMain.handle('backup-restore', async (_e, binPath: string, dbPath: string, use
   } catch (err: any) {
     try {
       const fff = path.join(dir, `${base}FFF.FDB`);
-      if (fs.existsSync(fff) && !fs.existsSync(dbPath)) fs.renameSync(fff, dbPath);
+      if (fs.existsSync(fff) && !fs.existsSync(db)) fs.renameSync(fff, db);
     } catch {}
     try { await runCommandStr('sc start FirebirdServerFB25'); } catch {}
     return `Erro no processo: ${err?.message || String(err)}`;

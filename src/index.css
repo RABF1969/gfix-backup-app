@@ -117,3 +117,46 @@ body {
   font-family: Consolas, ui-monospace, monospace;
   font-size: 12px;
 }
+
+/* Linha interna da titlebar (texto à esquerda, botões à direita) */
+.titlebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Título (arrastável) */
+.titlebar .title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+/* Área dos botões não é arrastável */
+.titlebar-controls {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  gap: 6px;
+}
+
+/* Botões */
+.tb-btn {
+  width: 32px;
+  height: 24px;
+  line-height: 22px;
+  border: 1px solid #b8c7da;
+  border-radius: 4px;
+  background: linear-gradient(#ffffff, #e8f1fb);
+  color: #173b63;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  padding: 0;
+}
+.tb-btn:hover { filter: brightness(0.98); }
+.tb-btn:active { transform: translateY(1px); }
+
+.tb-close {
+  background: linear-gradient(#ffe5e5, #ffc7c7);
+  border-color: #de8a8a;
+  color: #7a1212;
+}
