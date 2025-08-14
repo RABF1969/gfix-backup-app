@@ -1,58 +1,30 @@
+// electron/main.ts
 import { app, BrowserWindow, ipcMain, dialog, Menu } from "electron";
-import * as path from "path";
-import * as fs from "fs";
+import path from "path";
+import fs from "fs";
 import { exec } from "child_process";
 
 let mainWindow: BrowserWindow | null = null;
 
-/* ------------------------------------------------------------------------------------------------
- * 1) Suporte a Portable: salva dados (userData) ao lado do executável
- * ------------------------------------------------------------------------------------------------ */
-if (process.env.PORTABLE_EXECUTABLE_DIR) {
-  const portableDataDir = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "data");
-  try {
-    fs.mkdirSync(portableDataDir, { recursive: true });
-  } catch {}
-  app.setPath("userData", portableDataDir);
-}
-
-/* ------------------------------------------------------------------------------------------------
- * 2) Helpers — exec e status do serviço do Firebird
- * ------------------------------------------------------------------------------------------------ */
-
-/** Executa comando (sem lançar exceção). Retorna stdout+stderr. */
-function run(command: string): Promise<string> {
+/* Utilitário: roda comandos e retorna stdout+stderr */
+function run(cmd: string): Promise<string> {
   return new Promise((resolve) => {
-    exec(command, { windowsHide: true }, (error, stdout, stderr) => {
-      const out = `${stdout || ""}${stderr || ""}`.trim();
-      if (error) return resolve(out || error.message);
-      resolve(out || "OK");
+    exec(cmd, { windowsHide: true }, (err, stdout, stderr) => {
+      const out = `${stdout ?? ""}${stderr ?? ""}`.trim();
+      if (err) resolve(out || err.message);
+      else resolve(out || "OK");
     });
   });
 }
 
-/** Tenta descobrir se algum serviço de Firebird 2.5 está RUNNING. */
-async function getFirebirdServiceStatus(): Promise<"rodando" | "parado" | "desconhecido"> {
-  const candidates = ["FirebirdServerFB25", "FirebirdServerDefaultInstance", "FirebirdServer"];
-  try {
-    for (const name of candidates) {
-      const out = await run(`sc query "${name}"`);
-      if (/SERVICE_NAME/i.test(out)) {
-        if (/STATE\s*:\s*\d+\s*RUNNING/i.test(out)) return "rodando";
-        if (/STATE\s*:\s*\d+\s*STOPPED/i.test(out)) return "parado";
-        return "desconhecido";
-      }
-    }
-    return "desconhecido";
-  } catch {
-    return "desconhecido";
-  }
+/* Modo portable (salva userData ao lado do .exe) */
+if (process.env.PORTABLE_EXECUTABLE_DIR) {
+  const portable = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "data");
+  try { fs.mkdirSync(portable, { recursive: true }); } catch {}
+  app.setPath("userData", portable);
 }
 
-/* ------------------------------------------------------------------------------------------------
- * 3) Templates — defaults + persistência em settings.json
- * ------------------------------------------------------------------------------------------------ */
-
+/* ----------------- Templates (config avançada) ----------------- */
 type Templates = {
   useCustom: boolean;
   test: string;
@@ -64,91 +36,62 @@ type Templates = {
 
 const defaultTemplates: Templates = {
   useCustom: false,
-  // Teste de conexão (isql)
   test: `cmd /c "echo quit; | {ISQL} -user {USER} -password {PASS} "{DB_PATH}" -q -nod"`,
-  // Verifica (gfix -v -full)
   check: `{GFIX} -user {USER} -password {PASS} -v -full "{DB_PATH}"`,
-  // Repara (gfix -mend)
   mend: `{GFIX} -user {USER} -password {PASS} -mend "{DB_PATH}"`,
-  // Backup (gbak -b) com logs
   backup: `{GBAK} -backup -ignore -garbage -limbo -v -y "{LOG_BKP}" "{OLD_DB}" "{FBK}" -user {USER} -password {PASS}`,
-  // Restore (gbak -c) com logs
   restore: `{GBAK} -create -z -v -y "{LOG_RTR}" "{FBK}" "{NEW_DB}" -user {USER} -password {PASS}`,
 };
 
-function settingsPath() {
-  return path.join(app.getPath("userData"), "settings.json");
-}
+const settingsPath = () => path.join(app.getPath("userData"), "settings.json");
 
 function loadTemplates(): Templates {
   try {
-    const f = settingsPath();
-    if (fs.existsSync(f)) {
-      const json = JSON.parse(fs.readFileSync(f, "utf-8"));
-      // Merge para garantir que não venha “zerado”
-      return { ...defaultTemplates, ...json };
+    if (fs.existsSync(settingsPath())) {
+      const saved = JSON.parse(fs.readFileSync(settingsPath(), "utf-8"));
+      return { ...defaultTemplates, ...saved };
     }
   } catch {}
   return { ...defaultTemplates };
 }
-
-function saveTemplates(data: Templates): boolean {
+function saveTemplates(tpls: Templates) {
   try {
-    const f = settingsPath();
-    fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.writeFileSync(f, JSON.stringify(data, null, 2), "utf-8");
+    fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify(tpls, null, 2), "utf-8");
     return true;
   } catch {
     return false;
   }
 }
+function fill(tpl: string, ctx: Record<string,string>) {
+  return tpl.replace(/\{([A-Z_]+)\}/g, (_, k) => ctx[k] ?? "");
+}
 
-/* ------------------------------------------------------------------------------------------------
- * 4) Criação da janela — FRAMLESS, sem menu do Windows
- *    (mover a janela depende do CSS: .titlebar { -webkit-app-region: drag })
- * ------------------------------------------------------------------------------------------------ */
-
+/* ----------------- Janela (frameless + sem menu) ----------------- */
 function createWindow() {
-  // Remove menu nativo (File/Edit/View…)
   Menu.setApplicationMenu(null);
 
   mainWindow = new BrowserWindow({
     width: 1100,
-    height: 780,
+    height: 760,
     minWidth: 980,
     minHeight: 640,
-    // Sem barra nativa do Windows
     frame: false,
-    // Melhor translucidez / integração (não é obrigatório no Windows, mas ajuda no visual)
-    titleBarStyle: "hidden",
+    titleBarStyle: "hiddenInset",
     backgroundColor: "#e9edf3",
-    show: false, // mostra depois de pronto para evitar flicker
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
     },
   });
 
-  // Carrega URL do Vite (dev) ou index.html (prod)
   const devUrl = process.env.VITE_DEV_SERVER_URL;
-  if (devUrl) {
-    mainWindow.loadURL(devUrl);
-  } else {
-    mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
-  }
-
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
-  });
+  if (devUrl) mainWindow.loadURL(devUrl);
+  else mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
 
   mainWindow.on("closed", () => (mainWindow = null));
 }
-
-/* ------------------------------------------------------------------------------------------------
- * 5) App lifecycle
- * ------------------------------------------------------------------------------------------------ */
 
 app.whenReady().then(() => {
   createWindow();
@@ -156,215 +99,120 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
-
-/* ------------------------------------------------------------------------------------------------
- * 6) IPC — Janela (min/max/fechar com confirmação)
- * ------------------------------------------------------------------------------------------------ */
-
-ipcMain.on("win:minimize", (e) => {
-  const w = BrowserWindow.fromWebContents(e.sender);
-  w?.minimize();
-});
-
-ipcMain.on("win:maximize", (e) => {
-  const w = BrowserWindow.fromWebContents(e.sender);
+/* ----------------- IPC: Controles de janela ----------------- */
+ipcMain.handle("win:minimize", () => BrowserWindow.getFocusedWindow()?.minimize());
+ipcMain.handle("win:maximize", () => {
+  const w = BrowserWindow.getFocusedWindow();
   if (!w) return;
-  if (w.isMaximized()) w.unmaximize();
-  else w.maximize();
+  w.isMaximized() ? w.unmaximize() : w.maximize();
 });
-
 ipcMain.handle("app:confirm-exit", async () => {
-  const r = await dialog.showMessageBox({
-    type: "question",
-    title: "Confirmar saída",
-    message: "Deseja realmente fechar o aplicativo?",
-    buttons: ["Sim", "Não"],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
+  const res = await dialog.showMessageBox({
+    type: "question", buttons: ["Sim", "Não"], defaultId: 1, cancelId: 1,
+    title: "Confirmar saída", message: "Deseja realmente fechar o aplicativo?", noLink: true,
   });
-  return r.response === 0;
+  return res.response === 0;
 });
-
 ipcMain.on("app:exit", () => app.quit());
 
-/* ------------------------------------------------------------------------------------------------
- * 7) IPC — Status do Firebird
- * ------------------------------------------------------------------------------------------------ */
-ipcMain.handle("status:firebird", async () => getFirebirdServiceStatus());
-
-/* ------------------------------------------------------------------------------------------------
- * 8) IPC — Pickers
- * ------------------------------------------------------------------------------------------------ */
-
+/* ----------------- IPC: Pickers ----------------- */
 ipcMain.handle("select-fdb", async () => {
   const res = await dialog.showOpenDialog({
     title: "Selecionar banco de dados (.FDB)",
     properties: ["openFile"],
-    filters: [
-      { name: "Firebird DB", extensions: ["fdb", "gdb"] },
-      { name: "Todos os arquivos", extensions: ["*"] },
-    ],
+    filters: [{ name: "Firebird DB", extensions: ["fdb","gdb"] }, { name: "Todos", extensions: ["*"] }],
   });
-  if (res.canceled || !res.filePaths?.[0]) return "";
-  return res.filePaths[0];
+  return res.canceled ? "" : (res.filePaths[0] ?? "");
 });
-
 ipcMain.handle("select-bin", async () => {
   const res = await dialog.showOpenDialog({
     title: "Selecionar diretório BIN do Firebird 2.5",
     properties: ["openDirectory"],
   });
-  if (res.canceled || !res.filePaths?.[0]) return "";
-  return res.filePaths[0];
+  return res.canceled ? "" : (res.filePaths[0] ?? "");
 });
 
-/* ------------------------------------------------------------------------------------------------
- * 9) IPC — Configurações (templates)
- * ------------------------------------------------------------------------------------------------ */
-ipcMain.handle("config:get-templates", async () => loadTemplates());
-ipcMain.handle("config:save-templates", async (_e, data: Templates) => {
-  return saveTemplates(data) ? "OK" : "Erro ao salvar templates.";
-});
-ipcMain.handle("config:restore-defaults", async () => {
-  const ok = saveTemplates({ ...defaultTemplates });
-  return ok ? loadTemplates() : defaultTemplates;
-});
-
-/* ------------------------------------------------------------------------------------------------
- * 10) IPC — Ações GFIX/ISQL/GBAK
- * ------------------------------------------------------------------------------------------------ */
-
-function replacePlaceholders(tpl: string, ctx: Record<string, string>) {
-  return tpl.replace(/\{([A-Z_]+)\}/g, (_m, key) => ctx[key] ?? "");
-}
-
-// Testar conexão (isql)
-ipcMain.handle("test-connection", async (_e, binPath: string, dbPath: string, user: string, pass: string) => {
-  const t = loadTemplates();
-  const isql = `"${path.join(binPath, "isql.exe")}"`;
-  const ctx = { ISQL: isql, USER: user, PASS: pass, DB_PATH: dbPath };
-  const cmd = t.useCustom
-    ? replacePlaceholders(t.test, ctx)
-    : `cmd /c "echo quit; | ${isql} -user ${user} -password ${pass} "${dbPath}" -q -nod"`;
-  return await run(cmd);
-});
-
-// Verificar (gfix -v -full)
-ipcMain.handle("check-db", async (_e, binPath: string, dbPath: string, user: string, pass: string) => {
-  const t = loadTemplates();
-  const gfix = `"${path.join(binPath, "gfix.exe")}"`;
-  const ctx = { GFIX: gfix, USER: user, PASS: pass, DB_PATH: dbPath };
-  const cmd = t.useCustom ? replacePlaceholders(t.check, ctx) : `${gfix} -user ${user} -password ${pass} -v -full "${dbPath}"`;
-  return await run(cmd);
-});
-
-// Reparar (gfix -mend)
-ipcMain.handle("mend-db", async (_e, binPath: string, dbPath: string, user: string, pass: string) => {
-  const t = loadTemplates();
-  const gfix = `"${path.join(binPath, "gfix.exe")}"`;
-  const ctx = { GFIX: gfix, USER: user, PASS: pass, DB_PATH: dbPath };
-  const cmd = t.useCustom ? replacePlaceholders(t.mend, ctx) : `${gfix} -user ${user} -password ${pass} -mend "${dbPath}"`;
-  return await run(cmd);
-});
-
-// Backup & Restore (gbak) com stop/start do serviço + rename seguro
-ipcMain.handle("backup-restore", async (_e, binPath: string, dbPath: string, user: string, pass: string) => {
-  const t = loadTemplates();
-
-  const gbak = `"${path.join(binPath, "gbak.exe")}"`;
-  const dir = path.dirname(dbPath);
-  const base = path.basename(dbPath).replace(/\.fdb$/i, "");
-  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
-
-  const tempDir = path.join(dir, "TEMP");
-  if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-  const oldDb = path.join(dir, `${base}FFF.FDB`);
-  const newDb = path.join(dir, `${base}FF.FDB`);
-  const fbk = path.join(dir, `${base}_${stamp}.FBK`);
-  const logBkp = path.join(tempDir, `LOG_BKP_${stamp}.LOG`);
-  const logRtr = path.join(tempDir, `LOG_RTR_${stamp}.LOG`);
-
-  const services = ["FirebirdServerFB25", "FirebirdServerDefaultInstance", "FirebirdServer"];
-  async function sc(cmd: "stop" | "start") {
-    for (const s of services) await run(`sc ${cmd} ${s}`);
-  }
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  async function renameWithRetry(src: string, dst: string, tries = 16, delayMs = 500) {
-    for (let i = 0; i < tries; i++) {
-      try {
-        fs.renameSync(src, dst);
-        return true;
-      } catch (e: any) {
-        if (e?.code !== "EBUSY" && e?.code !== "EPERM") throw e;
-        await sleep(delayMs);
-      }
+/* ----------------- IPC: Status do Firebird -----------------
+ * Reconhece tanto inglês (STATE: 4 RUNNING) quanto PT-BR (ESTADO : 4  EM EXECUÇÃO).
+ * Se QUALQUER serviço esperado estiver rodando => "Rodando".
+ * Se encontramos pelo menos um parado e nenhum rodando => "Parado".
+ * Em erro => "—".
+ * ----------------------------------------------------------- */
+ipcMain.handle("get-firebird-status", async () => {
+  try {
+    const services = ["FirebirdServerFB25", "FirebirdServerDefaultInstance", "FirebirdServer", "FirebirdGuardianDefaultInstance"];
+    let seenStopped = false;
+    for (const svc of services) {
+      const out = await run(`sc query ${svc}`);
+      if (/(STATE|ESTADO)\s*:\s*4\s+(RUNNING|EM\s+EXECUÇÃO)/i.test(out)) return "Rodando";
+      if (/(STATE|ESTADO)\s*:\s*1\s+(STOPPED|PARADO)/i.test(out)) seenStopped = true;
+      // se "does not exist" apenas tenta o próximo
     }
-    return false;
+    return seenStopped ? "Parado" : "—";
+  } catch {
+    return "—";
   }
+});
+
+/* ----------------- IPC: Ações DB ----------------- */
+ipcMain.handle("test-connection", async (_e, bin: string, db: string, user: string, pass: string) => {
+  const isql = `"${path.join(bin, "isql.exe")}"`;
+  return await run(`cmd /c "echo quit; | ${isql} -user ${user} -password ${pass} "${db}" -q -nod"`);
+});
+ipcMain.handle("check-db", async (_e, bin: string, db: string, user: string, pass: string) => {
+  const gfix = `"${path.join(bin, "gfix.exe")}"`;
+  const tpl = loadTemplates();
+  const cmd = tpl.useCustom ? fill(tpl.check, { GFIX: gfix, USER: user, PASS: pass, DB_PATH: db })
+                            : `${gfix} -user ${user} -password ${pass} -v -full "${db}"`;
+  return await run(cmd);
+});
+ipcMain.handle("mend-db", async (_e, bin: string, db: string, user: string, pass: string) => {
+  const gfix = `"${path.join(bin, "gfix.exe")}"`;
+  const tpl = loadTemplates();
+  const cmd = tpl.useCustom ? fill(tpl.mend, { GFIX: gfix, USER: user, PASS: pass, DB_PATH: db })
+                            : `${gfix} -user ${user} -password ${pass} -mend "${db}"`;
+  return await run(cmd);
+});
+ipcMain.handle("backup-restore", async (_e, bin: string, db: string, user: string, pass: string) => {
+  const gbak = `"${path.join(bin, "gbak.exe")}"`;
+  const dir = path.dirname(db);
+  const base = path.basename(db).replace(/\.fdb$/i, "");
+  const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
+  const tempDir = path.join(dir, "TEMP"); try { fs.mkdirSync(tempDir, { recursive: true }); } catch {}
+
+  const oldDb = path.join(dir, `${base}_OLD_${stamp}.FDB`);
+  const newDb = path.join(dir, `${base}_TEMP_${stamp}.FDB`);
+  const fbk   = path.join(dir, `${base}_${stamp}.FBK`);
+  const logB  = path.join(tempDir, `LOG_BKP_${stamp}.LOG`);
+  const logR  = path.join(tempDir, `LOG_RTR_${stamp}.LOG`);
+  const tpl   = loadTemplates();
+
+  const bkp = tpl.useCustom
+    ? fill(tpl.backup,  { GBAK: gbak, USER: user, PASS: pass, DB_PATH: db, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk, LOG_BKP: logB, LOG_RTR: logR })
+    : `${gbak} -backup -ignore -garbage -limbo -v -y "${logB}" "${db}" "${fbk}" -user ${user} -password ${pass}`;
+
+  let out = await run(bkp);
+
+  const rtr = tpl.useCustom
+    ? fill(tpl.restore, { GBAK: gbak, USER: user, PASS: pass, DB_PATH: db, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk, LOG_BKP: logB, LOG_RTR: logR })
+    : `${gbak} -create -z -v -y "${logR}" "${fbk}" "${newDb}" -user ${user} -password ${pass}`;
+
+  out += `\n\n` + (await run(rtr));
 
   try {
-    if (!fs.existsSync(dbPath)) return `Arquivo não encontrado: "${dbPath}"`;
-    await sc("stop");
-
-    const renamed = await renameWithRetry(dbPath, oldDb, 16, 500);
-    if (!renamed) {
-      await sc("start");
-      return `Falha ao renomear (arquivo em uso): ${dbPath}`;
-    }
-
-    // BACKUP
-    let backupCmd = `${gbak} -backup -ignore -garbage -limbo -v -y "${logBkp}" "${oldDb}" "${fbk}" -user ${user} -password ${pass}`;
-    if (t.useCustom) {
-      backupCmd = replacePlaceholders(t.backup, {
-        GBAK: gbak, USER: user, PASS: pass,
-        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
-        LOG_BKP: logBkp, LOG_RTR: logRtr,
-      });
-    }
-    let out = await run(backupCmd);
-    if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
-      try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
-      await sc("start");
-      return `Falha no backup:\n${out}`;
-    }
-
-    // RESTORE
-    let restoreCmd = `${gbak} -create -z -v -y "${logRtr}" "${fbk}" "${newDb}" -user ${user} -password ${pass}`;
-    if (t.useCustom) {
-      restoreCmd = replacePlaceholders(t.restore, {
-        GBAK: gbak, USER: user, PASS: pass,
-        DB_PATH: dbPath, OLD_DB: oldDb, NEW_DB: newDb, FBK: fbk,
-        LOG_BKP: logBkp, LOG_RTR: logRtr,
-      });
-    }
-    out = await run(restoreCmd);
-    if (/error|failed|unable|cannot|sqlstate\s*=\s*\w+/i.test(out) && !/success|done|gbak:finishing/i.test(out)) {
-      try { if (fs.existsSync(oldDb) && !fs.existsSync(dbPath)) fs.renameSync(oldDb, dbPath); } catch {}
-      try { if (fs.existsSync(newDb)) fs.unlinkSync(newDb); } catch {}
-      await sc("start");
-      return `Falha no restore:\n${out}`;
-    }
-
-    try { if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath); } catch {}
-    fs.renameSync(newDb, dbPath);
-
-    const oldHist = path.join(dir, `${base}_OLD_${stamp}.FDB`);
-    try { fs.renameSync(oldDb, oldHist); } catch {}
-
-    await sc("start");
-    return `Backup & Restore concluído!\nFBK: ${fbk}\nLOGs:\n - ${logBkp}\n - ${logRtr}`;
-  } catch (err: any) {
-    try {
-      const fff = path.join(dir, `${base}FFF.FDB`);
-      if (fs.existsSync(fff) && !fs.existsSync(dbPath)) fs.renameSync(fff, dbPath);
-    } catch {}
-    try { await run("sc start FirebirdServerFB25"); } catch {}
-    return `Erro no processo: ${err?.message || String(err)}`;
+    if (fs.existsSync(db)) fs.renameSync(db, oldDb);
+    if (fs.existsSync(newDb)) fs.renameSync(newDb, db);
+  } catch (e: any) {
+    out += `\n\nFalha ao renomear arquivos: ${e?.message ?? e}`;
   }
+
+  out += `\n\nFBK: ${fbk}\nLOGs:\n - ${logB}\n - ${logR}`;
+  return out;
 });
+
+/* ----------------- IPC: Configurações ----------------- */
+ipcMain.handle("config:get-templates", () => loadTemplates());
+ipcMain.handle("config:save-templates", (_e, data: Templates) => saveTemplates(data) ? "OK" : "Erro ao salvar.");
+ipcMain.handle("config:restore-defaults", () => { const t = { ...defaultTemplates }; saveTemplates(t); return t; });

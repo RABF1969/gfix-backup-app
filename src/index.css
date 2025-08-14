@@ -145,3 +145,41 @@ footer {
   font-size: 12px;
   color: #666;
 }
+
+/* --- garantir arraste da janela frameless --- */
+.titlebar { 
+  -webkit-app-region: drag;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.no-drag, .titlebar-actions, .winbtn { -webkit-app-region: no-drag; }
+.titlebar-actions { display: flex; gap: 8px; }
+.winbtn { border: 1px solid #c7d0dc; background: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.winbtn.danger { background: #ffdede; border-color: #de8a8a; }
+
+/* --- tela de Configurações compacta --- */
+.settings-wrapper { display: flex; flex-direction: column; gap: 12px; padding-bottom: 0; }
+
+/* área rolável só dos campos (mantém botões sempre visíveis) */
+.settings-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 280px); /* cabe confortavelmente em 768px */
+  padding-right: 4px;
+}
+
+/* barra fixa de ações (sempre visível) */
+.settings-actions {
+  position: sticky; bottom: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; padding: 10px 12px; margin-top: 6px;
+  background: #f6f9ff; border: 1px solid #c7d0dc; border-radius: 8px;
+}
+
+.settings-actions .right { display: flex; gap: 8px; }
+.note { font-size: 12px; color: #444; }
+
+/* textareas um pouco menores para caber sem rolagem geral */
+.textarea {
+  width: 100%; min-height: 90px; resize: vertical;
+  padding: 8px 10px; border: 1px solid #b9c7d8; border-radius: 6px; background: #fff;
+  font-family: Consolas, ui-monospace, monospace; font-size: 12px;
+}

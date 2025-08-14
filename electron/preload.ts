@@ -1,42 +1,35 @@
-// electron/preload.ts
 import { contextBridge, ipcRenderer } from "electron";
 
 /**
- * Exponho UMA API estável pro renderer.
- * - Métodos que pedem retorno usam ipcRenderer.invoke (promessa)
- * - Ações simples de janela usam ipcRenderer.send
+ * API exposta ao renderer com segurança.
+ * Toda função que o React chamar deve ser exposta aqui.
  */
 contextBridge.exposeInMainWorld("api", {
-  // File pickers
+  // Seletores de arquivos
   selectFdb: () => ipcRenderer.invoke("select-fdb"),
   selectBin: () => ipcRenderer.invoke("select-bin"),
 
-  // Ações Firebird
-  testConnection: (binPath: string, dbPath: string, user: string, pass: string) =>
-    ipcRenderer.invoke("test-connection", binPath, dbPath, user, pass),
+  // Ações com banco
+  testConnection: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("test-connection", bin, db, user, pass),
+  checkDb: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("check-db", bin, db, user, pass),
+  mendDb: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("mend-db", bin, db, user, pass),
+  backupRestore: (bin: string, db: string, user: string, pass: string) =>
+    ipcRenderer.invoke("backup-restore", bin, db, user, pass),
 
-  checkDb: (binPath: string, dbPath: string, user: string, pass: string) =>
-    ipcRenderer.invoke("check-db", binPath, dbPath, user, pass),
-
-  mendDb: (binPath: string, dbPath: string, user: string, pass: string) =>
-    ipcRenderer.invoke("mend-db", binPath, dbPath, user, pass),
-
-  backupRestore: (binPath: string, dbPath: string, user: string, pass: string) =>
-    ipcRenderer.invoke("backup-restore", binPath, dbPath, user, pass),
-
-  // Status do Firebird
-  getFirebirdStatus: () => ipcRenderer.invoke("status:firebird"),
-
-  // Config / Templates
+  // Templates
   getTemplates: () => ipcRenderer.invoke("config:get-templates"),
-  saveTemplates: (data: any) => ipcRenderer.invoke("config:save-templates", data),
+  saveTemplates: (data: unknown) => ipcRenderer.invoke("config:save-templates", data),
   restoreDefaults: () => ipcRenderer.invoke("config:restore-defaults"),
 
-  // Janela
-  minimize: () => ipcRenderer.send("win:minimize"),
-  maximizeToggle: () => ipcRenderer.send("win:maximize"),
+  // Status do Firebird
+  getFirebirdStatus: () => ipcRenderer.invoke("get-firebird-status"),
+
+  // Controles da janela
+  minimize: () => ipcRenderer.invoke("win:minimize"),
+  maximize: () => ipcRenderer.invoke("win:maximize"), // <— adicionado
   confirmExit: () => ipcRenderer.invoke("app:confirm-exit"),
   exit: () => ipcRenderer.send("app:exit"),
 });
-
-export {};

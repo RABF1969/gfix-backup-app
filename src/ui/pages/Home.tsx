@@ -1,215 +1,138 @@
 // src/ui/pages/Home.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import AdvancedSettings from "./AdvancedSettings"; // Tela de templates (já existente no projeto)
-import Footer from "../../components/Footer";      // Rodapé em src/components/Footer.tsx
+import AdvancedSettings from "./AdvancedSettings";
+import Footer from "../../components/Footer";
 
-// Tipo do status do serviço
-type Status = "rodando" | "parado" | "desconhecido";
+type Status = "Rodando" | "Parado" | "—";
 
-/**
- * Home
- * - Janela custom sem frame: título com botões (min/max/fechar)
- * - Campos: caminho .FDB, pasta bin, usuário, senha e “usar padrão”
- * - Ações: Teste conexão, Verifica, Repara, Backup & Restore
- * - Console fixo: exibe apenas “Ação: …” + resultado (sem rolagem)
- * - Botão “Configurações” abre <AdvancedSettings/> e volta com “Voltar”
- */
 const Home: React.FC = () => {
-  // -------------------------- Estado UI --------------------------
+  // ---------------- Form ----------------
   const [dbPath, setDbPath] = useState("");
   const [binPath, setBinPath] = useState("");
   const [user, setUser] = useState("SYSDBA");
   const [pass, setPass] = useState("");
   const [useDefault, setUseDefault] = useState(false);
 
-  // Status do serviço Firebird mostrado ao usuário
-  const [status, setStatus] = useState<Status>("desconhecido");
-
-  // Console fixo (sem rolagem, sempre substitui pelo último comando)
-  const [consoleText, setConsoleText] = useState<string>(
-    "Aguarde... Pronto para iniciar."
-  );
-
-  // Alterna para tela de configurações
+  // --------------- Estado ---------------
+  const [status, setStatus] = useState<Status>("—");
+  const [consoleOut, setConsoleOut] = useState("Aguarde... Pronto para iniciar.");
   const [showSettings, setShowSettings] = useState(false);
+  const canRun = useMemo(() => !!dbPath && !!binPath, [dbPath, binPath]);
 
-  // -------------------------- Efeitos ----------------------------
-  // 1) Ajusta a senha quando “usar padrão” é marcado/desmarcado
+  // Senha padrão
   useEffect(() => {
     if (useDefault) setPass("masterkey");
     else setPass((p) => (p === "masterkey" ? "" : p));
   }, [useDefault]);
 
-  // 2) Busca status do serviço Firebird ao montar
+  // Status do Firebird (polling 3s)
   useEffect(() => {
     let alive = true;
-    window.api
-      .getFirebirdStatus()
-      .then((s) => alive && setStatus(s))
-      .catch(() => alive && setStatus("desconhecido"));
-    return () => {
-      alive = false;
-    };
+    async function tick() {
+      try {
+        const s = await window.api.getFirebirdStatus();
+        if (alive) setStatus((s as Status) ?? "—");
+      } catch {
+        if (alive) setStatus("—");
+      }
+    }
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // -------------------------- Helpers ----------------------------
-  // Atualiza o console com rótulo da ação + resultado
-  const showResult = (acao: string, result: string) => {
-    setConsoleText(`Ação: ${acao}\n${result || "OK"}`);
+  // Console helper (sempre zera)
+  const showConsole = (action: string, text: string) => {
+    setConsoleOut(`Ação: ${action}\n${text}`);
   };
 
-  // Valida se BIN + FDB foram informados
-  const canRun = useMemo(() => !!binPath && !!dbPath, [binPath, dbPath]);
+  // Pickers
+  async function pickFdb() { const p = await window.api.selectFdb(); if (p) setDbPath(p); }
+  async function pickBin() { const p = await window.api.selectBin(); if (p) setBinPath(p); }
 
-  // ----------------------- File pickers --------------------------
-  async function pickFdb() {
-    const p = await window.api.selectFdb();
-    if (p) setDbPath(p);
-  }
-  async function pickBin() {
-    const p = await window.api.selectBin();
-    if (p) setBinPath(p);
-  }
-
-  // -------------------------- Ações ------------------------------
+  // Ações DB
   async function testConnection() {
-    if (!canRun) return showResult("Teste de Conexão", "Informe o BIN e o .FDB.");
-    // Limpa o console e roda
-    setConsoleText("Ação: Teste de Conexão\nExecutando...");
+    if (!canRun) return showConsole("Erro", "Informe o BIN e o caminho do .FDB.");
+    showConsole("Teste de Conexão", "Executando...");
     const out = await window.api.testConnection(binPath, dbPath, user, pass);
-    showResult("Teste de Conexão", out);
-    // (Opcional) Atualiza status do serviço após o teste
-    try {
-      const s = await window.api.getFirebirdStatus();
-      setStatus(s);
-    } catch {}
+    showConsole("Teste de Conexão", out || "OK");
   }
-
   async function verify() {
-    if (!canRun) return showResult("Verifica", "Informe o BIN e o .FDB.");
-    setConsoleText("Ação: Verifica\nExecutando...");
+    if (!canRun) return showConsole("Erro", "Informe o BIN e o caminho do .FDB.");
+    showConsole("Verifica", "Executando...");
     const out = await window.api.checkDb(binPath, dbPath, user, pass);
-    showResult("Verifica", out);
+    showConsole("Verifica", out || "OK");
   }
-
   async function mend() {
-    if (!canRun) return showResult("Repara", "Informe o BIN e o .FDB.");
-    setConsoleText("Ação: Repara\nExecutando...");
+    if (!canRun) return showConsole("Erro", "Informe o BIN e o caminho do .FDB.");
+    showConsole("Repara", "Executando...");
     const out = await window.api.mendDb(binPath, dbPath, user, pass);
-    showResult("Repara", out);
+    showConsole("Repara", out || "OK");
   }
-
   async function doBackupRestore() {
-    if (!canRun) return showResult("Backup & Restore", "Informe o BIN e o .FDB.");
-    setConsoleText("Ação: Backup & Restore\nExecutando...");
+    if (!canRun) return showConsole("Erro", "Informe o BIN e o caminho do .FDB.");
+    showConsole("Backup & Restore", "Executando...");
     const out = await window.api.backupRestore(binPath, dbPath, user, pass);
-    showResult("Backup & Restore", out);
+    showConsole("Backup & Restore", out || "OK");
   }
 
-  // ---------------------- Controles de janela --------------------
-  function handleMinimize() {
-    window.api.minimize(); // sem confirmação
-  }
-  function handleMaximizeRestore() {
-    window.api.maximizeToggle(); // alterna entre maximizado/restaurado
-  }
-  async function handleClose() {
-    const ok = await window.api.confirmExit(); // confirma fechar
-    if (ok) window.api.exit();
-  }
+  // Janela
+  const minimize = () => window.api.minimize();
+  const maximize = () => window.api.maximize(); // toggle maximizar/restaurar
+  const exitApp  = async () => { if (await window.api.confirmExit()) window.api.exit(); };
 
-  // -------------------- Tela de Configurações --------------------
   if (showSettings) {
-    // O AdvancedSettings deve renderizar os templates; aqui apenas navega.
     return <AdvancedSettings onBack={() => setShowSettings(false)} />;
   }
 
-  // ---------------------------- UI -------------------------------
   return (
-    <div className="app">
-      {/* Barra de título custom (frame=false); -webkit-app-region: drag via CSS */}
+    <div className="window">
+      {/* Barra de título arrastável */}
       <div className="titlebar">
-        <div className="title">Firebird Recovery — Processo GFIX + Backup/Restore</div>
-
-        {/* Botões da janela; precisam de .no-drag para clicarem normalmente */}
-        <div className="win-controls">
-          <button className="btn no-drag" title="Minimizar" onClick={handleMinimize}>
-            –
-          </button>
-          <button
-            className="btn no-drag"
-            title="Restaurar/Maximizar"
-            onClick={handleMaximizeRestore}
-          >
-            ☐
-          </button>
-          <button className="btn danger no-drag" title="Fechar" onClick={handleClose}>
-            X
-          </button>
+        <div>Firebird Recovery — Processo GFIX + Backup/Restore</div>
+        <div className="titlebar-actions no-drag">
+          <button className="winbtn" onClick={minimize} title="Minimizar">–</button>
+          <button className="winbtn" onClick={maximize} title="Maximizar/Restaurar">▢</button>
+          <button className="winbtn danger" onClick={exitApp} title="Fechar">X</button>
         </div>
       </div>
 
       <div className="content">
-        {/* Grupo: Dados do servidor */}
+        {/* Dados do servidor */}
         <div className="group">
           <div className="group-title">Dados do servidor</div>
 
           <div className="row">
             <div className="label">Caminho do banco de dados</div>
-            <input
-              className="input"
-              value={dbPath}
-              onChange={(e) => setDbPath(e.target.value)}
-              placeholder="Ex.: G:\PASTA\seu_banco.FDB"
-            />
-            <button className="btn no-drag" onClick={pickFdb} title="Escolher .FDB">
-              📂
-            </button>
+            <input className="input" value={dbPath} onChange={(e) => setDbPath(e.target.value)} />
+            <button className="btn" onClick={pickFdb}>📂</button>
           </div>
 
           <div className="row">
             <div className="label">Diretório BIN do Firebird</div>
-            <input
-              className="input"
-              value={binPath}
-              onChange={(e) => setBinPath(e.target.value)}
-              placeholder='Ex.: C:\Program Files\Firebird\Firebird_2_5\bin'
-            />
-            <button className="btn no-drag" onClick={pickBin} title="Escolher pasta BIN">
-              📂
-            </button>
+            <input className="input" value={binPath} onChange={(e) => setBinPath(e.target.value)} />
+            <button className="btn" onClick={pickBin}>📂</button>
           </div>
 
           <div className="row">
             <div className="label">Usuário</div>
             <input className="input" value={user} onChange={(e) => setUser(e.target.value)} />
-            <div className="label" style={{ minWidth: 60 }}>
-              Senha
-            </div>
-            <input
-              className="password"
-              type="password"
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
+            <div className="label" style={{ minWidth: 60 }}>Senha</div>
+            <input className="password" type="password" value={pass} onChange={(e) => setPass(e.target.value)} />
           </div>
 
           <label className="checkbox" style={{ marginTop: 4 }}>
-            <input
-              type="checkbox"
-              checked={useDefault}
-              onChange={(e) => setUseDefault(e.target.checked)}
-            />
+            <input type="checkbox" checked={useDefault} onChange={(e) => setUseDefault(e.target.checked)} />
             Utilizar usuário e senha padrão
           </label>
 
           <div className="row" style={{ marginTop: 8 }}>
             <div className="label">Status Firebird:</div>
             <div className="status">
-              {status === "rodando" ? (
+              {status === "Rodando" ? (
                 <span className="link-green">Rodando</span>
-              ) : status === "parado" ? (
-                <span className="link-red">Parado</span>
+              ) : status === "Parado" ? (
+                <span style={{ color: "#b00020", fontWeight: 700 }}>Parado</span>
               ) : (
                 "—"
               )}
@@ -217,40 +140,27 @@ const Home: React.FC = () => {
           </div>
         </div>
 
-        {/* Grupo: Opções */}
+        {/* Opções */}
         <div className="group">
           <div className="group-title">Opções</div>
           <div className="row" style={{ gap: 10 }}>
-            <button className="btn no-drag" onClick={testConnection}>
-              Teste conexão
-            </button>
-            <button className="btn no-drag" onClick={verify}>
-              Verifica
-            </button>
-            <button className="btn warn no-drag" onClick={mend}>
-              Repara
-            </button>
-            <button className="btn no-drag" onClick={doBackupRestore}>
-              Backup & Restore
-            </button>
-            <button className="btn no-drag" onClick={() => setShowSettings(true)}>
-              Configurações
-            </button>
-            <button className="btn danger no-drag" onClick={handleClose}>
-              Sair
-            </button>
+            <button className="btn" onClick={testConnection}>Teste conexão</button>
+            <button className="btn" onClick={verify}>Verifica</button>
+            <button className="btn warn" onClick={mend}>Repara</button>
+            <button className="btn" onClick={doBackupRestore}>Backup & Restore</button>
+            <button className="btn" onClick={() => setShowSettings(true)}>Configurações</button>
+            <button className="btn danger" onClick={exitApp}>Sair</button>
           </div>
         </div>
 
-        {/* Grupo: Console (fixo, sem rolagem; sempre substitui pela última ação) */}
+        {/* Console fixo (sem rolagem) */}
         <div className="group">
           <div className="group-title">Console</div>
-          <pre className="log" aria-live="polite">
-            {consoleText}
+          <pre className="log" style={{ overflow: "hidden", whiteSpace: "pre-wrap", height: 220 }}>
+            {consoleOut}
           </pre>
         </div>
 
-        {/* Rodapé padrão do projeto */}
         <Footer />
       </div>
     </div>
