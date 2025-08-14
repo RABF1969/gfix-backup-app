@@ -1,25 +1,35 @@
-/* =================== Base / Reset =================== */
-* { box-sizing: border-box; }
-html, body, #root { height: 100%; }
+/* =========================================================
+   Base / Reset
+   ========================================================= */
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: #e9edf3;
   font-family: Segoe UI, Tahoma, Arial, sans-serif;
   color: #222;
-  overflow: hidden; /* evita rolagem externa da janela sem frame */
+  overflow: hidden; /* Evita rolagem da janela inteira (frameless) */
 }
 
-/* Container raiz da app */
+/* Container raiz da aplicação */
 .app {
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* =================== Titlebar custom (frame=false) =================== */
-/* Esta faixa precisa ser "drag" pra permitir arrastar a janela */
+/* =========================================================
+   Titlebar customizada (quando frame=false no Electron)
+   ========================================================= */
+/* Faixa arrastável da janela */
 .titlebar {
-  -webkit-app-region: drag;
+  -webkit-app-region: drag; /* Permite arrastar a janela */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -28,33 +38,44 @@ body {
   background: linear-gradient(#f9fbff, #f2f6fc);
 }
 
-/* Título */
-.title {
-  font-weight: 700;
-  font-size: 15px;
+/* Elementos que não devem arrastar a janela */
+.no-drag,
+.titlebar-actions,
+.winbtn {
+  -webkit-app-region: no-drag;
 }
 
-/* Botões da janela (min/max/fechar) ficam do lado direito */
-.win-controls {
+/* Área de botões da barra de título */
+.titlebar-actions {
   display: flex;
   gap: 8px;
 }
 
-/* Qualquer elemento clicável DENTRO da titlebar deve ser no-drag */
-.no-drag,
-.titlebar .btn,
-.titlebar button {
-  -webkit-app-region: no-drag;
+/* Botões padrão da janela */
+.winbtn {
+  border: 1px solid #c7d0dc;
+  background: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.winbtn.danger {
+  background: #ffdede;
+  border-color: #de8a8a;
 }
 
-/* =================== Conteúdo =================== */
+/* =========================================================
+   Conteúdo principal
+   ========================================================= */
 .content {
-  flex: 1;               /* ocupa todo o restante vertical */
-  overflow: auto;        /* se faltar espaço, rola só o conteúdo */
+  flex: 1;               /* Ocupa todo o espaço disponível */
+  overflow: auto;        /* Rolagem interna quando necessário */
   padding: 16px;
 }
 
-/* Group box (estilo "caixa" do print) */
+/* =========================================================
+   Agrupamentos de campos (Group Box)
+   ========================================================= */
 .group {
   border: 1px solid #c7d0dc;
   border-radius: 6px;
@@ -74,7 +95,9 @@ body {
   font-size: 13px;
 }
 
-/* Linhas e inputs */
+/* =========================================================
+   Campos e layout de linhas
+   ========================================================= */
 .row {
   display: flex;
   gap: 10px;
@@ -103,7 +126,9 @@ body {
   color: #333;
 }
 
-/* Botões estilo Win */
+/* =========================================================
+   Botões estilo Windows
+   ========================================================= */
 .btn {
   appearance: none;
   border: 1px solid #8aa8c8;
@@ -114,17 +139,42 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.btn:active { transform: translateY(1px); }
-.btn.primary { background: linear-gradient(#dff3ff, #bfe2ff); border-color: #6fa9df; }
-.btn.warn { background: linear-gradient(#fff6dc, #ffe6a3); border-color: #e0c36a; color: #6a4a00; }
-.btn.danger { background: linear-gradient(#ffe5e5, #ffc7c7); border-color: #de8a8a; color: #7a1212; }
+.btn:active {
+  transform: translateY(1px);
+}
+.btn.primary {
+  background: linear-gradient(#dff3ff, #bfe2ff);
+  border-color: #6fa9df;
+}
+.btn.warn {
+  background: linear-gradient(#fff6dc, #ffe6a3);
+  border-color: #e0c36a;
+  color: #6a4a00;
+}
+.btn.danger {
+  background: linear-gradient(#ffe5e5, #ffc7c7);
+  border-color: #de8a8a;
+  color: #7a1212;
+}
 
-/* Status */
-.status { font-size: 13px; }
-.link-green { color: #0a8a2a; font-weight: 700; }
-.link-red   { color: #b00020; font-weight: 700; }
+/* =========================================================
+   Indicadores de status
+   ========================================================= */
+.status {
+  font-size: 13px;
+}
+.link-green {
+  color: #0a8a2a;
+  font-weight: 700;
+}
+.link-red {
+  color: #b00020;
+  font-weight: 700;
+}
 
-/* Console fixo (sem rolagem, sempre substituído) */
+/* =========================================================
+   Console fixo (sempre substitui o texto, sem scroll interno)
+   ========================================================= */
 .log {
   background: #0a0f17;
   color: #c9ffd4;
@@ -132,54 +182,79 @@ body {
   border-radius: 6px;
   padding: 10px;
   min-height: 140px;
-  white-space: pre-wrap;             /* quebra linhas */
+  white-space: pre-wrap; /* Quebra de linha automática */
   font-family: Consolas, ui-monospace, monospace;
   font-size: 12px;
-  overflow: hidden;                  /* sem scrollbars */
+  overflow: hidden;
 }
 
-/* Rodapé (o componente Footer usa esta área) */
+/* =========================================================
+   Rodapé
+   ========================================================= */
 footer {
   margin-top: 12px;
   text-align: center;
   font-size: 12px;
   color: #666;
+  flex-shrink: 0; /* Evita que suma em layouts flex */
 }
 
-/* --- garantir arraste da janela frameless --- */
-.titlebar { 
-  -webkit-app-region: drag;
-  display: flex; align-items: center; justify-content: space-between;
+/* =========================================================
+   Tela de Configurações (avançado)
+   ========================================================= */
+
+/* Wrapper vertical para a tela de settings */
+.settings-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 10px; /* Espaço para a barra de ações */
+  min-height: 0; /* Essencial para rolagem correta em flexbox */
 }
-.no-drag, .titlebar-actions, .winbtn { -webkit-app-region: no-drag; }
-.titlebar-actions { display: flex; gap: 8px; }
-.winbtn { border: 1px solid #c7d0dc; background: #fff; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
-.winbtn.danger { background: #ffdede; border-color: #de8a8a; }
 
-/* --- tela de Configurações compacta --- */
-.settings-wrapper { display: flex; flex-direction: column; gap: 12px; padding-bottom: 0; }
-
-/* área rolável só dos campos (mantém botões sempre visíveis) */
+/* Área rolável apenas dos campos (mantém botões visíveis) */
 .settings-scroll {
-  overflow: auto;
-  max-height: calc(100vh - 280px); /* cabe confortavelmente em 768px */
+  flex: 1; /* Ocupa o espaço livre */
+  min-height: 0; /* Permite rolar internamente */
+  overflow-y: auto;
   padding-right: 4px;
+  padding-top: 6px; /* Espaço para o título */
 }
 
-/* barra fixa de ações (sempre visível) */
+/* Barra de ações fixa (sempre visível no fim) */
 .settings-actions {
-  position: sticky; bottom: 0;
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 12px; padding: 10px 12px; margin-top: 6px;
-  background: #f6f9ff; border: 1px solid #c7d0dc; border-radius: 8px;
+  flex-shrink: 0; /* Não encolhe nem some */
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-top: 6px;
+  background: #f6f9ff;
+  border: 1px solid #c7d0dc;
+  border-radius: 8px;
 }
 
-.settings-actions .right { display: flex; gap: 8px; }
-.note { font-size: 12px; color: #444; }
+.settings-actions .right {
+  display: flex;
+  gap: 8px; 
+}
 
-/* textareas um pouco menores para caber sem rolagem geral */
+/* Texto de observação (nota) */
+.note {
+  font-size: 12px;
+  color: #444;
+}
+
+/* Textareas personalizadas para scripts/templates */
 .textarea {
-  width: 100%; min-height: 90px; resize: vertical;
-  padding: 8px 10px; border: 1px solid #b9c7d8; border-radius: 6px; background: #fff;
-  font-family: Consolas, ui-monospace, monospace; font-size: 12px;
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #b9c7d8;
+  border-radius: 6px;
+  background: #fff;
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 12px;
 }
